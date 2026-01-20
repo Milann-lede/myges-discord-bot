@@ -126,7 +126,7 @@ async def agenda(ctx, date_str=None):
 
 @tasks.loop(time=[
     time(hour=6, minute=0, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
-    time(hour=0, minute=39, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
+    time(hour=0, minute=54, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
     time(hour=18, minute=0, tzinfo=ZoneInfo("Europe/Paris")) # 18h00: Post tomorrow's schedule
 ]) 
 async def schedule_loop():
@@ -139,7 +139,7 @@ async def schedule_loop():
 
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
-    if now.hour >= 17: 
+    if now.hour >= 10: 
         # Cleanup: Delete previous day's message if it exists
         state = load_state()
         
