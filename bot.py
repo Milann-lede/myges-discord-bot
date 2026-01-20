@@ -126,7 +126,7 @@ async def agenda(ctx, date_str=None):
 
 @tasks.loop(time=[
     time(hour=6, minute=0, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
-    time(hour=0, minute=10, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
+    time(hour=0, minute=25, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
     time(hour=18, minute=0, tzinfo=ZoneInfo("Europe/Paris")) # 18h00: Post tomorrow's schedule
 ]) 
 async def schedule_loop():

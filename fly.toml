@@ -1,0 +1,12 @@
+app = 'myges-discord-bot'
+primary_region = 'cdg'
+
+[build]
+
+# Suppression de la section [http_service] car c'est un bot, pas un site web.
+# Il ne "s'arrêtera" pas automatiquement (auto_stop_machines supprimé).
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
