@@ -126,7 +126,6 @@ async def agenda(ctx, date_str=None):
 
 @tasks.loop(time=[
     time(hour=6, minute=0, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
-    time(hour=1, minute=30, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
     time(hour=18, minute=0, tzinfo=ZoneInfo("Europe/Paris")) # 18h00: Post tomorrow's schedule
 ]) 
 async def schedule_loop():
@@ -140,117 +139,92 @@ async def schedule_loop():
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
     if now.hour >= 17: 
-        # Cleanup: Delete previous day's message if it exists
-        state = load_state()
-        
-        # Robust cleanup: Check history for lingering "Rappel" messages not in state
+        # Cleanup: Delete ALL previous bot messages (Rappel/Planning) in history
+        # Because file state is lost on Fly.io restart/deploy
         try:
             async for history_msg in channel.history(limit=20):
-                if history_msg.author == bot.user and "Rappel du planning de demain" in history_msg.content:
-                    await history_msg.delete()
-                    print(f"Deleted lingering text message: {history_msg.id}")
+                if history_msg.author == bot.user:
+                    # Check if it's a schedule message (by content or embed)
+                    # We look for "Rappel", "Mise à jour", or an embed with "MyGES Planning"
+                    is_schedule = False
+                    if "Rappel du planning" in history_msg.content:
+                        is_schedule = True
+                    elif "Mise à jour du planning" in history_msg.content:
+                        is_schedule = True
+                    elif history_msg.embeds and "MyGES Planning" in (history_msg.embeds[0].author.name or ""):
+                        is_schedule = True
+                    
+                    if is_schedule:
+                        await history_msg.delete()
+                        print(f"Deleted old schedule message: {history_msg.id}")
         except Exception as e:
-            print(f"Error checking history for cleanup: {e}")
-
-        if state:
-            if state.get('message_id'):
-                try:
-                    old_msg = await channel.fetch_message(state['message_id'])
-                    await old_msg.delete()
-                    print("Deleted previous day's schedule message.")
-                except discord.NotFound:
-                    print("Previous message to delete not found.")
-                except Exception as e:
-                    print(f"Error deleting previous message: {e}")
-            
-            # Additional check for ID (though history might have caught it)
-            if state.get('text_message_id'):
-                try:
-                    old_text_msg = await channel.fetch_message(state['text_message_id'])
-                    await old_text_msg.delete()
-                except discord.NotFound:
-                    pass # Likely deleted by history check
-                except Exception as e:
-                    print(f"Error deleting previous text message by ID: {e}")
+            print(f"Error cleaning up history: {e}")
 
         target_date = now + timedelta(days=1)
-        # Get raw courses for comparison/saving
+        # Get raw courses
         start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end = target_date.replace(hour=23, minute=59, second=59, microsecond=999)
         courses = myges.get_agenda(start, end)
         
         embed = get_schedule_embed(target_date)
-        text_msg = await channel.send(f"🔔 **Rappel du planning de demain :**")
-        msg = await channel.send(embed=embed)
+        # Send ONE message
+        msg = await channel.send(content="🔔 **Rappel du planning de demain :**", embed=embed)
         
-        # Save state for tomorrow morning's check
-        # Convert courses to a serializable format (dates handling if needed, though they are likely timestamps/strings)
-        save_state(target_date.strftime("%Y-%m-%d"), courses, msg.id, channel.id, text_msg.id)
+        # We still save state for the morning check (if bot doesn't restart overnight)
+        save_state(target_date.strftime("%Y-%m-%d"), courses, msg.id, channel.id)
         print(f"Posted & Saved schedule for {target_date.strftime('%Y-%m-%d')}")
 
     # MORNING LOGIC (Check Today's Schedule) - Runs before 12:00
     else:
         target_date = now
-        # Fetch fresh data for today
         start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end = target_date.replace(hour=23, minute=59, second=59, microsecond=999)
         current_courses = myges.get_agenda(start, end)
         
         state = load_state()
         
-        # If we have a saved state for TODAY
+        # Try to find recent message in history if state is lost
+        last_bot_msg = None
+        if not state:
+            async for m in channel.history(limit=10):
+                if m.author == bot.user and m.embeds and "MyGES Planning" in (m.embeds[0].author.name or ""):
+                    last_bot_msg = m
+                    break
+        
+        # Determine comparison source
+        saved_courses = []
         if state and state.get('date') == target_date.strftime("%Y-%m-%d"):
             saved_courses = state.get('courses', [])
-            
-            # Simple comparison (JSON dumping allows deep equality check ignoring order if sorted, 
-            # but lists should be roughly same order. MyGES API is consistent.)
-            # We strip dynamic fields that might change per request if necessary, but usually raw data is fine.
+        # If no state but we found a message, we might assume it *was* correct, but we can't easily extracting courses from Embed.
+        # So for morning check, strict state is better. 
+        # But if state is lost, we basically can't check for DIFF, we can only Repost if we want strict consistency.
+        # For now, let's keep the logic: If no state, do nothing (to avoid spamming). 
+        # BUT if the user wants "Morning Update", they rely on state.
+        
+        if state and state.get('date') == target_date.strftime("%Y-%m-%d"):
             if json.dumps(current_courses, sort_keys=True) != json.dumps(saved_courses, sort_keys=True):
                 print("Schedule changed! Deleting old message and reposting.")
                 
-                # Delete old message
+                # Delete old message (State ID)
                 try:
                     old_msg = await channel.fetch_message(state['message_id'])
                     await old_msg.delete()
-                except discord.NotFound:
-                    print("Old message not found, just posting new.")
-                except Exception as e:
-                    print(f"Error deleting old message: {e}")
-                
-                # Robust cleanup for text message
-                try:
-                    async for history_msg in channel.history(limit=20):
-                        if history_msg.author == bot.user and "Rappel du planning de demain" in history_msg.content:
-                            await history_msg.delete()
-                except Exception as e:
-                    print(f"Error cleaning up text message via history: {e}")
+                except:
+                    pass
 
-                # Delete old text message by ID (backup)
-                if state.get('text_message_id'):
-                    try:
-                        old_text_msg = await channel.fetch_message(state['text_message_id'])
-                        await old_text_msg.delete()
-                    except discord.NotFound:
-                        pass
-                    except Exception as e:
-                        print(f"Error deleting old text message: {e}")
+                # Also cleanup history just in case
+                async for history_msg in channel.history(limit=10):
+                    if history_msg.author == bot.user and ("Rappel" in history_msg.content or "Mise à jour" in history_msg.content):
+                        await history_msg.delete()
 
-                # Post New
                 embed = get_schedule_embed(target_date)
-                text_msg = await channel.send(f"🔔 **Mise à jour du planning d'aujourd'hui :** (Changement détecté)")
-                msg = await channel.send(embed=embed)
+                msg = await channel.send(content="🔔 **Mise à jour du planning d'aujourd'hui :** (Changement détecté)", embed=embed)
                 
-                # Update state (saving the new text message ID too if we want to track the update message? 
-                # Actually, the user specifically mentioned "Rappel du planning". 
-                # The "Mise à jour" message is different. 
-                # We should probably clear the "Rappel" message if it exists, and post the "Mise à jour".
-                # The code above deletes "Rappel" via history. 
-                # We'll save the new IDs.
-                save_state(target_date.strftime("%Y-%m-%d"), current_courses, msg.id, channel.id, text_msg.id)
+                save_state(target_date.strftime("%Y-%m-%d"), current_courses, msg.id, channel.id)
             else:
-                print("Schedule identical to yesterday's check. No update needed.")
+                 print("No change detected.")
         else:
-             print("No state found for today or date mismatch. Doing nothing (or could post if desired).")
+             print("No state found for today. Skipping update check.")
 
 @schedule_loop.before_loop
 async def before_schedule_loop():
