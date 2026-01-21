@@ -1,5 +1,6 @@
 discord.py
-myges
+
 
 python-dotenv
 requests
+beautifulsoup4
