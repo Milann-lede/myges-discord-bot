@@ -156,8 +156,8 @@ async def schedule_loop():
         return
 
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
-    # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
-    if now.hour >= 17: 
+    # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 15:00
+    if now.hour >= 15: 
         # Cleanup: Delete ALL previous bot messages (Rappel/Planning) in history
         # Because file state is lost on Fly.io restart/deploy
         try:
