@@ -151,7 +151,6 @@ async def agenda(ctx, date_str=None):
 
 @tasks.loop(time=[
     time(hour=6, minute=0, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
-    time(hour=16, minute=8, tzinfo=ZoneInfo("Europe/Paris")),
     time(hour=18, minute=0, tzinfo=ZoneInfo("Europe/Paris")) # 18h00: Post tomorrow's schedule
 ]) 
 async def schedule_loop():
@@ -163,8 +162,7 @@ async def schedule_loop():
         return
 
     # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 17:00
-    # EVENING LOGIC (Post Tomorrow's Schedule) - Runs after 15:00
-    if now.hour >= 15: 
+    if now.hour >= 17: 
         # Cleanup: Delete ALL previous bot messages (Rappel/Planning) in history
         # Because file state is lost on Fly.io restart/deploy
         try:
