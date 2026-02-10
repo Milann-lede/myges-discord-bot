@@ -47,11 +47,29 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+def filter_courses(raw_courses):
+    filtered = []
+    for course in raw_courses:
+        teacher = course.get('discipline', {}).get('teacher', 'N/A')
+        course_type = course.get('type', 'N/A')
+        
+        # Criteria 1: Must have a teacher (not None, not 'N/A', not empty)
+        if not teacher or teacher == 'N/A':
+            continue
+            
+        # Criteria 2: Must not be "Libre" (unimportant)
+        if course_type == "Libre":
+            continue
+            
+        filtered.append(course)
+    return filtered
+
 def get_schedule_embed(date_obj):
     start = date_obj.replace(hour=0, minute=0, second=0, microsecond=0)
     end = date_obj.replace(hour=23, minute=59, second=59, microsecond=999)
     
-    courses = myges.get_agenda(start, end)
+    raw_courses = myges.get_agenda(start, end)
+    courses = filter_courses(raw_courses)
     
     locale_date = date_obj.strftime("%d/%m/%Y")
     # MyGES Red Color: 0xE0020B
@@ -164,7 +182,7 @@ async def schedule_loop():
         # Get raw courses
         start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end = target_date.replace(hour=23, minute=59, second=59, microsecond=999)
-        courses = myges.get_agenda(start, end)
+        courses = filter_courses(myges.get_agenda(start, end))
         
         embed = get_schedule_embed(target_date)
         # Send ONE message
@@ -179,7 +197,7 @@ async def schedule_loop():
         target_date = now
         start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end = target_date.replace(hour=23, minute=59, second=59, microsecond=999)
-        current_courses = myges.get_agenda(start, end)
+        current_courses = filter_courses(myges.get_agenda(start, end))
         
         state = load_state()
         
