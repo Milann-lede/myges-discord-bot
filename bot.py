@@ -53,8 +53,11 @@ def filter_courses(raw_courses):
         teacher = course.get('discipline', {}).get('teacher', 'N/A')
         course_type = course.get('type', 'N/A')
         
-        # Criteria 1: Must have a teacher (not None, not 'N/A', not empty)
-        if not teacher or teacher == 'N/A':
+        # Criteria 1: Must have a teacher (not None, not 'N/A', not empty, not '**')
+        # Also trim whitespace to catch " "
+        teacher = teacher.strip() if teacher else None
+        
+        if not teacher or teacher == 'N/A' or teacher == '**':
             continue
             
         # Criteria 2: Must not be "Libre" (unimportant)
