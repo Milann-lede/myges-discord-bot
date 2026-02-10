@@ -144,6 +144,7 @@ async def agenda(ctx, date_str=None):
 
 @tasks.loop(time=[
     time(hour=6, minute=0, tzinfo=ZoneInfo("Europe/Paris")), # 6h00: Verification (Check for updates)
+    time(hour=15, minute=45, tzinfo=ZoneInfo("Europe/Paris")),
     time(hour=18, minute=0, tzinfo=ZoneInfo("Europe/Paris")) # 18h00: Post tomorrow's schedule
 ]) 
 async def schedule_loop():
@@ -184,13 +185,18 @@ async def schedule_loop():
         end = target_date.replace(hour=23, minute=59, second=59, microsecond=999)
         courses = filter_courses(myges.get_agenda(start, end))
         
-        embed = get_schedule_embed(target_date)
-        # Send ONE message
-        msg = await channel.send(content="🔔 **Rappel du planning de demain :**", embed=embed)
-        
-        # We still save state for the morning check (if bot doesn't restart overnight)
-        save_state(target_date.strftime("%Y-%m-%d"), courses, msg.id, channel.id)
-        print(f"Posted & Saved schedule for {target_date.strftime('%Y-%m-%d')}")
+        if not courses:
+            print(f"No courses for {target_date}, skipping message.")
+            # Still save state so morning check knows we skipped (message_id=None)
+            save_state(target_date.strftime("%Y-%m-%d"), courses, None, channel.id)
+        else:
+            embed = get_schedule_embed(target_date)
+            # Send ONE message
+            msg = await channel.send(content="🔔 **Rappel du planning de demain :**", embed=embed)
+            
+            # We still save state for the morning check
+            save_state(target_date.strftime("%Y-%m-%d"), courses, msg.id, channel.id)
+            print(f"Posted & Saved schedule for {target_date.strftime('%Y-%m-%d')}")
 
     # MORNING LOGIC (Check Today's Schedule) - Runs before 12:00
     else:
@@ -225,8 +231,9 @@ async def schedule_loop():
                 
                 # Delete old message (State ID)
                 try:
-                    old_msg = await channel.fetch_message(state['message_id'])
-                    await old_msg.delete()
+                    if state.get('message_id'):
+                        old_msg = await channel.fetch_message(state['message_id'])
+                        await old_msg.delete()
                 except:
                     pass
 
@@ -235,10 +242,14 @@ async def schedule_loop():
                     if history_msg.author == bot.user and ("Rappel" in history_msg.content or "Mise à jour" in history_msg.content):
                         await history_msg.delete()
 
-                embed = get_schedule_embed(target_date)
-                msg = await channel.send(content="🔔 **Mise à jour du planning d'aujourd'hui :** (Changement détecté)", embed=embed)
-                
-                save_state(target_date.strftime("%Y-%m-%d"), current_courses, msg.id, channel.id)
+                if not current_courses:
+                    print("Courses cleared. No message to send.")
+                    save_state(target_date.strftime("%Y-%m-%d"), current_courses, None, channel.id)
+                else: 
+                    embed = get_schedule_embed(target_date)
+                    msg = await channel.send(content="🔔 **Mise à jour du planning d'aujourd'hui :** (Changement détecté)", embed=embed)
+                    
+                    save_state(target_date.strftime("%Y-%m-%d"), current_courses, msg.id, channel.id)
             else:
                  print("No change detected.")
         else:
