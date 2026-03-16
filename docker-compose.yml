@@ -1,0 +1,16 @@
+services:
+  bot:
+    # Build the image from the local Dockerfile
+    build: .
+
+    # Always restart if the bot crashes or the VPS reboots
+    restart: always
+
+    # Load environment variables from the .env file
+    env_file:
+      - .env
+
+    # Persist the schedule state file between container restarts
+    # Without this volume, the state (posted messages, etc.) is lost on each restart
+    volumes:
+      - ./schedule_state.json:/app/schedule_state.json
