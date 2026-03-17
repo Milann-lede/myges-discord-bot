@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, time
 import asyncio
 import json
+import shutil
+import traceback
 
 load_dotenv()
 
@@ -29,9 +31,17 @@ def save_state(date_str, courses, message_id, channel_id, text_message_id=None):
         json.dump(state, f)
 
 def load_state():
+    # Docker creates a directory instead of a file if the host path doesn't exist.
+    # Detect and clean it up so save_state() can create a proper file.
+    if os.path.isdir(STATE_FILE):
+        shutil.rmtree(STATE_FILE)
+        return None
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(STATE_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
     return None
 
 MYGES_EMAIL = os.getenv("MYGES_EMAIL")
@@ -50,7 +60,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def filter_courses(raw_courses):
     filtered = []
     for course in raw_courses:
-        teacher = course.get('discipline', {}).get('teacher', 'N/A')
+        # Use `or {}` to safely handle `"discipline": null` from the API.
+        teacher = (course.get('discipline') or {}).get('teacher', 'N/A')
         course_type = course.get('type', 'N/A')
         
         # Criteria 1: Must have a teacher (not None, not 'N/A', not empty, not '**')
@@ -98,7 +109,7 @@ def get_schedule_embed(date_obj):
         rooms_list = course.get('rooms') or []
         rooms = ", ".join([r.get('name', '?') for r in rooms_list])
         campus = ", ".join(list(set([r.get('campus', '?') for r in rooms_list])))
-        teacher = course.get('discipline', {}).get('teacher', 'N/A')
+        teacher = (course.get('discipline') or {}).get('teacher', 'N/A')
         modality = course.get('modality', 'N/A')
         course_type = course.get('type', 'N/A')
         
@@ -141,10 +152,11 @@ async def agenda(ctx, date_str=None):
     Affiche l'emploi du temps.
     Usage: !agenda (pour demain) ou !agenda today (pour aujourd'hui)
     """
-    target_date = datetime.now() + timedelta(days=1) # Default to tomorrow
-    
+    # Use Paris timezone explicitly — datetime.now() naïf serait UTC sur le VPS.
+    target_date = datetime.now(ZoneInfo("Europe/Paris")) + timedelta(days=1)  # Default: tomorrow
+
     if date_str == "today" or date_str == "aujourdhui":
-        target_date = datetime.now()
+        target_date = datetime.now(ZoneInfo("Europe/Paris"))
     
     embed = get_schedule_embed(target_date)
     await ctx.send(embed=embed)
@@ -263,5 +275,18 @@ async def schedule_loop():
 @schedule_loop.before_loop
 async def before_schedule_loop():
     await bot.wait_until_ready()
+
+
+@schedule_loop.error
+async def schedule_loop_error(error):
+    """Log task errors and restart the loop so it doesn't die silently."""
+    print(f"[ERROR] schedule_loop crashed: {error}")
+    traceback.print_exc()
+    # Wait before restarting to avoid a tight crash loop.
+    await asyncio.sleep(60)
+    if not schedule_loop.is_running():
+        print("Restarting schedule_loop...")
+        schedule_loop.restart()
+
 
 bot.run(DISCORD_TOKEN)
